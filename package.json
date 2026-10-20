@@ -1,0 +1,16 @@
+{
+  "name": "poppy-federated-commerce-example",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "demo": "node kit/company/examples/federated-commerce/demo.ts",
+    "test": "node --test kit/company/validate/test/federated-commerce.test.ts",
+    "check:provenance": "node scripts/check-provenance.mjs",
+    "check": "npm run check:provenance && npm test && npm run demo"
+  },
+  "description": "A runnable Poppy draft 0.2 directory-to-supplier commerce example"
+}
