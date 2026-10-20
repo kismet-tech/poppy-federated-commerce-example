@@ -138,7 +138,7 @@ evidence. For production implementation requirements, use the
 
 ## Maintenance and provenance
 
-We at Kismet maintain this companion; Jason Cincotta is the named maintenance owner. We will track each Poppy draft revision, rerun the example and tests, and record the supported revision explicitly. This is an independently maintained companion, not an official Poppy implementation or endorsement.
+Maintained by Jason Cincotta at Kismet. We will track each Poppy draft revision, rerun the example and tests, and record the supported revision explicitly. This is an independently maintained companion, not an official Poppy implementation or endorsement.
 
 Licensed under Apache-2.0. The cryptographic helpers, schema validator and JSON schemas are copied from the Personal Agent Protocol Company kit at upstream commit `39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d`. See ATTRIBUTION.md and LICENSE.
 
