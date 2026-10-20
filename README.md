@@ -49,13 +49,13 @@ installation or pnpm is required; the companion includes the helpers and schemas
 Clone the companion repository, then run its tests and demo:
 
 ```sh
-git clone <companion-repository-url> poppy-federated-commerce-example
+git clone https://github.com/kismet-tech/poppy-federated-commerce-example.git poppy-federated-commerce-example
 cd poppy-federated-commerce-example
 npm test
 npm run demo
 ```
 
-The repository URL will be filled in after publication is approved. `npm test` runs the 25
+`npm test` runs the 25
 companion tests. Both the tests and demo are included in this repository.
 
 The demo prints a destination choice and approval for each of two suppliers, recovers a lost
