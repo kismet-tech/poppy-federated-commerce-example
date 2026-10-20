@@ -13,7 +13,6 @@ Expected results:
 - Demo completes the MCP and Company Agent paths, recovers dropped confirmation
   responses and ends with exactly two simulated fulfillment records.
 
-These are synthetic local compatibility results. The GitHub workflow is prepared
-but has not run remotely because this repository is not yet published. No independent
+These are synthetic local compatibility results. Hosted results are available in [GitHub Actions](https://github.com/kismet-tech/poppy-federated-commerce-example/actions/workflows/validate.yml); check the run for the commit you use. No independent
 Personal Agent has validated the example, and this does not establish production
 OAuth, payment, TLS or full Company conformance.
