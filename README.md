@@ -1,5 +1,10 @@
 # Poppy federated commerce example
 
+> **Version status (October 27, 2026):** this runnable companion implements the pinned
+> draft **0.2**, not the in-progress draft 0.3. Session Keys, MCP Token Exchange,
+> discovery metadata and conversation messages change in 0.3. See
+> [the compatibility record](VALIDATION.md#draft-03-review-october-27-2026) before adapting it.
+
 Use this example to connect **finding an offer in one service** with **completing a user-approved
 action at the supplier responsible for it**. It shows a Personal Agent searching a travel directory,
 choosing a supplier, obtaining current terms through MCP or a Company Agent, and recovering the
@@ -22,8 +27,10 @@ separate.
 - **Infrastructure providers:** host independent suppliers on shared systems while preserving
   Company-specific issuers, credentials and records.
 
-The reusable capability is the connection between discovery, Company authority, approval and
-outcome recovery. It composes existing Poppy draft 0.2 discovery, Sessions, MCP, conversations and
+Finding and ranking suppliers remains outside Poppy, as clarified in
+[upstream issue #29](https://github.com/personal-agent-protocol/personal-agent-protocol/issues/29#issuecomment-6399202918).
+This example treats the directory as an application and demonstrates the subsequent connection
+between Company discovery, authority, approval and outcome recovery. It composes existing Poppy draft 0.2 discovery, Sessions, MCP, conversations and
 Operations into a runnable flow. The contribution adds implementation guidance and tests; the
 wire protocol stays the same. Each supplier still defines its tools and commerce terms, so an
 agent must understand that supplier's published API or tool schema.
@@ -132,9 +139,9 @@ requests and outcomes without exporting Company-specific User IDs or Sessions to
 Before proposing new handoff fields, try this pattern with independently implemented Personal
 Agents and Companies. This fixture and its client share code and are not that interoperability
 evidence. For production implementation requirements, use the
-[specification](https://personalagentprotocol.org/docs/spec),
-[Operations](https://personalagentprotocol.org/docs/extensions/operations) and
-[guides](https://personalagentprotocol.org/docs/guides).
+[specification](https://personalagentprotocol.org/docs/0.2/spec),
+[Operations](https://personalagentprotocol.org/docs/0.2/extensions/operations) and
+[guides](https://personalagentprotocol.org/docs/0.2/guides).
 
 ## Maintenance and provenance
 
