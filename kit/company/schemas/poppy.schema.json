@@ -23,8 +23,6 @@
             "required": ["issuer"],
             "properties": {
                 "issuer": { "$ref": "#/$defs/https_url" },
-                "direct": { "$ref": "#/$defs/sign_in_type" },
-                "device": { "$ref": "#/$defs/sign_in_type" },
                 "mediated": {
                     "type": "object",
                     "required": ["endpoint", "fields", "scopes"],
@@ -46,9 +44,22 @@
                         "scopes": { "$ref": "#/$defs/scopes" }
                     }
                 },
-                "custom_scopes": {
+                "scopes": {
+                    "description": "A description of each scope, keyed by scope name, in the same form as the scopes of an OpenAPI OAuth 2.0 security scheme. Every scope in scopes_supported needs a description here or in an OpenAPI description the Company lists.",
                     "type": "object",
-                    "additionalProperties": { "type": "string" }
+                    "additionalProperties": { "type": "string", "minLength": 1 }
+                },
+                "scope_hints": {
+                    "description": "Hints about each scope, keyed by scope name, describing the most consequential operation that requires it.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "required": ["changes", "personal_data"],
+                        "properties": {
+                            "changes": { "enum": ["none", "reversible", "irreversible"] },
+                            "personal_data": { "type": "boolean" }
+                        }
+                    }
                 }
             }
         },
@@ -78,6 +89,13 @@
                 "endpoint": {
                     "$ref": "#/$defs/https_url"
                 }
+            }
+        },
+        "excluded_tasks": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": { "$ref": "#/$defs/https_url" }
             }
         },
         "web": {
@@ -140,11 +158,6 @@
             "type": "array",
             "minItems": 1,
             "items": { "type": "string", "pattern": "^[\\x21\\x23-\\x5B\\x5D-\\x7E]+$" }
-        },
-        "sign_in_type": {
-            "type": "object",
-            "required": ["scopes"],
-            "properties": { "scopes": { "$ref": "#/$defs/scopes" } }
         }
     }
 }

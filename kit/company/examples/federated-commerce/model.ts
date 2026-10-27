@@ -1,7 +1,12 @@
 // Application-specific example data, not a new Poppy extension or commerce schema.
 export type Fetch = (request: Request) => Promise<Response>;
 export type Listing = { company_domain: string; listing_url: string };
-export type Intent = { listing_url: string; check_in: string; check_out: string; guests: number };
+export type Intent = {
+    listing_url: string;
+    check_in: string;
+    check_out: string;
+    guests: number;
+};
 export type Manifest = {
     protocol_version: string;
     organization: { name: string; domain: string };
@@ -10,7 +15,12 @@ export type Manifest = {
     agent?: { protocols: { type: string; endpoint: string }[] };
     extensions?: { operations?: { version: string; endpoint: string } };
 };
-export type Metadata = { issuer: string; token_endpoint: string; poppy_domains: string[] };
+export type Metadata = {
+    issuer: string;
+    token_endpoint: string;
+    protected_resources: string[];
+    grant_types_supported: string[];
+};
 export type Operation = {
     operation_id: string;
     revision: number;
@@ -23,7 +33,11 @@ export type Operation = {
     };
     expires_at: string;
     user_approval_required: true;
-    confirmation: { revision: number; approved_by: "user"; confirmed_at: string } | null;
+    confirmation: {
+        revision: number;
+        approved_by: "user";
+        confirmed_at: string;
+    } | null;
     result: { summary: string; data?: { reservation_id: string } } | null;
 };
 

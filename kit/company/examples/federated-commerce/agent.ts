@@ -3,6 +3,7 @@ import {
     generateKey,
     randomId,
     signAssertion,
+    thumbprint,
     type SigningKey,
 } from "../../validate/jose.ts";
 import {
@@ -27,6 +28,8 @@ export type CompanySession = {
     id: string;
     token: string;
     mcpToken?: string;
+    mcpBearer?: boolean;
+    ended?: boolean;
 };
 export type Proposal = { session: CompanySession; operation: Operation };
 type Rpc = {
@@ -37,7 +40,12 @@ type Rpc = {
         tools?: { name: string }[];
     };
 };
-export type Choice = { name: string; domain: string; issuer: string; listing: string };
+export type Choice = {
+    name: string;
+    domain: string;
+    issuer: string;
+    listing: string;
+};
 export type Approval = Choice & {
     summary: string;
     terms: Operation["terms"];
@@ -47,8 +55,9 @@ export type Approval = Choice & {
 
 // User callbacks are supplied by the Personal Agent's own UI. Company data never calls them.
 export class PersonalAgent {
-    private identities = new Map<string, Identity>();
+    private identities = new Map<string, string>();
     private transport: Fetch;
+    private nonces = new Map<string, string>();
     readonly clientId: string;
     readonly key: SigningKey;
     constructor(transport: Fetch, clientId: string, key: SigningKey) {
@@ -63,6 +72,44 @@ export class PersonalAgent {
         if (response.status >= 300 && response.status < 400)
             throw new Problem("endpoint_redirect_refused");
         return response;
+    }
+
+    private async proofRequest(
+        session: CompanySession,
+        url: string,
+        build: () => Promise<RequestInit>,
+        accessToken?: string,
+    ) {
+        if (session.ended) throw new Problem("invalid_grant");
+        // Nonces are scoped to the exact endpoint, never propagated to another Company.
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const init = await build();
+            const headers = new Headers(init.headers);
+            headers.set(
+                "DPoP",
+                await dpopProof({
+                    key: session.identity.dpop,
+                    method: init.method ?? "GET",
+                    url,
+                    accessToken,
+                    nonce: this.nonces.get(url),
+                }),
+            );
+            const response = await this.request(url, { ...init, headers });
+            const nonce = response.headers.get("DPoP-Nonce");
+            if (nonce) this.nonces.set(url, nonce);
+            if (!response.ok) {
+                const error = await response
+                    .clone()
+                    .json()
+                    .catch(() => ({}));
+                if (error.error === "use_dpop_nonce" && nonce && attempt === 0) continue;
+                if (error.error === "invalid_grant" && url === session.metadata.token_endpoint)
+                    session.ended = true;
+            }
+            return response;
+        }
+        throw new Problem("use_dpop_nonce");
     }
 
     async discover(domain: string): Promise<{ manifest: Manifest; metadata: Metadata }> {
@@ -81,9 +128,12 @@ export class PersonalAgent {
         }
         if (!response) throw new Problem("too_many_discovery_redirects");
         const manifest = await body<Manifest>(response);
-        const finalDomain = new URL(url).host;
+        const finalUrl = new URL(url);
+        if (finalUrl.pathname !== "/.well-known/poppy.json" || finalUrl.search)
+            throw new Problem("invalid_discovery_location");
+        const finalDomain = finalUrl.host;
         if (
-            manifest.protocol_version !== "0.2" ||
+            manifest.protocol_version !== "0.3" ||
             manifest.organization.domain.toLowerCase() !== finalDomain.toLowerCase()
         )
             throw new Problem("discovery_domain_mismatch");
@@ -92,21 +142,38 @@ export class PersonalAgent {
         );
         if (
             metadata.issuer !== manifest.auth.issuer ||
-            !metadata.poppy_domains.some((d) => d.toLowerCase() === finalDomain.toLowerCase())
+            !metadata.protected_resources?.some(
+                (d) =>
+                    /^https:\/\/[^/?#]+$/.test(d) &&
+                    new URL(d).host.toLowerCase() === finalDomain.toLowerCase(),
+            )
         )
             throw new Problem("issuer_domain_mismatch");
+        if (
+            !metadata.grant_types_supported?.includes(
+                "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            ) ||
+            !metadata.grant_types_supported.includes("refresh_token")
+        )
+            throw new Problem("unsupported_issuer_metadata");
         https(metadata.token_endpoint);
         return { manifest, metadata };
     }
 
     async open(discovery: { manifest: Manifest; metadata: Metadata }): Promise<CompanySession> {
         const issuer = discovery.manifest.auth.issuer;
-        let identity = this.identities.get(issuer);
-        if (!identity) {
-            identity = { subject: `usr_${randomId()}`, dpop: await generateKey() };
-            this.identities.set(issuer, identity);
+        let subject = this.identities.get(issuer);
+        if (!subject) {
+            subject = `usr_${randomId()}`;
+            this.identities.set(issuer, subject);
         }
-        const session: CompanySession = { ...discovery, identity, id: "", token: "" };
+        const identity = { subject, dpop: await generateKey() };
+        const session: CompanySession = {
+            ...discovery,
+            identity,
+            id: await thumbprint(identity.dpop.publicJwk),
+            token: "",
+        };
         session.token = await this.issue(session);
         return session;
     }
@@ -114,43 +181,75 @@ export class PersonalAgent {
     private async issue(session: CompanySession, resource?: string) {
         const { metadata, identity, manifest } = session;
         const assertion = (sub: string) =>
-            signAssertion({ key: this.key, iss: this.clientId, sub, aud: manifest.auth.issuer });
-        const form = new URLSearchParams({
-            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            client_id: this.clientId,
-            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-            client_assertion: await assertion(this.clientId),
-            assertion: await assertion(identity.subject),
-            ...(session.id ? { session_id: session.id } : {}),
-            ...(resource ? { resource } : {}),
-        });
+            signAssertion({
+                key: this.key,
+                iss: this.clientId,
+                sub,
+                aud: manifest.auth.issuer,
+            });
+        const form = async () =>
+            new URLSearchParams({
+                grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                client_id: this.clientId,
+                client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                client_assertion: await assertion(this.clientId),
+                assertion: await assertion(identity.subject),
+                ...(resource ? { resource } : {}),
+            });
         const response = await body<{
             access_token: string;
             token_type: string;
-            session_id: string;
-            signed_in: boolean;
-            scope: string;
+            expires_in: number;
         }>(
-            await this.request(metadata.token_endpoint, {
+            await this.proofRequest(session, metadata.token_endpoint, async () => ({
                 method: "POST",
-                body: form,
-                headers: {
-                    DPoP: await dpopProof({
-                        key: identity.dpop,
-                        method: "POST",
-                        url: metadata.token_endpoint,
-                    }),
-                },
-            }),
+                body: await form(),
+            })),
         );
         if (
             response.token_type !== "DPoP" ||
-            response.signed_in ||
-            response.scope !== "" ||
-            (session.id && response.session_id !== session.id)
+            "signed_in" in response ||
+            "scope" in response ||
+            "session_id" in response
         )
             throw new Problem("unexpected_session_response");
-        session.id = response.session_id;
+        return response.access_token;
+    }
+
+    async renew(session: CompanySession) {
+        session.token = await this.issue(session);
+        session.mcpToken = undefined;
+    }
+
+    private async exchange(session: CompanySession, resource: string) {
+        const response = await body<{
+            access_token: string;
+            token_type: string;
+            issued_token_type: string;
+        }>(
+            await this.proofRequest(session, session.metadata.token_endpoint, async () => ({
+                method: "POST",
+                body: new URLSearchParams({
+                    grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+                    client_id: this.clientId,
+                    client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                    client_assertion: await signAssertion({
+                        key: this.key,
+                        iss: this.clientId,
+                        sub: this.clientId,
+                        aud: session.manifest.auth.issuer,
+                    }),
+                    subject_token: session.token,
+                    subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
+                    resource,
+                }),
+            })),
+        );
+        if (
+            response.token_type !== "Bearer" ||
+            response.issued_token_type !== "urn:ietf:params:oauth:token-type:access_token"
+        )
+            throw new Problem("unexpected_exchange_response");
         return response.access_token;
     }
 
@@ -162,22 +261,19 @@ export class PersonalAgent {
         mcp = false,
     ) {
         const token = mcp ? session.mcpToken! : session.token;
-        return this.request(url, {
+        const build = async (): Promise<RequestInit> => ({
             method,
             headers: {
-                authorization: `DPoP ${token}`,
-                DPoP: await dpopProof({
-                    key: session.identity.dpop,
-                    method,
-                    url,
-                    accessToken: token,
-                }),
+                authorization: `${mcp && session.mcpBearer ? "Bearer" : "DPoP"} ${token}`,
                 "content-type": "application/json",
                 Accept: "application/json, text/event-stream",
                 ...(mcp ? { "MCP-Protocol-Version": "2025-06-18" } : {}),
             },
             ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
         });
+        return mcp && session.mcpBearer
+            ? this.request(url, await build())
+            : this.proofRequest(session, url, build, token);
     }
 
     private async rpc(session: CompanySession, method: string, params?: unknown) {
@@ -188,7 +284,12 @@ export class PersonalAgent {
                 session,
                 url,
                 "POST",
-                { jsonrpc: "2.0", id: randomId(), method, ...(params ? { params } : {}) },
+                {
+                    jsonrpc: "2.0",
+                    id: randomId(),
+                    method,
+                    ...(params ? { params } : {}),
+                },
                 true,
             ),
         );
@@ -206,10 +307,14 @@ export class PersonalAgent {
         if (
             prm.resource !== resource ||
             !prm.authorization_servers.includes(session.manifest.auth.issuer) ||
-            !prm.dpop_signing_alg_values_supported?.includes("ES256")
+            (prm.dpop_signing_alg_values_supported !== undefined &&
+                !prm.dpop_signing_alg_values_supported.includes("ES256"))
         )
             throw new Problem("unsupported_mcp_metadata");
-        session.mcpToken = await this.issue(session, resource);
+        session.mcpBearer = prm.dpop_signing_alg_values_supported === undefined;
+        session.mcpToken = session.mcpBearer
+            ? await this.exchange(session, resource)
+            : await this.issue(session, resource);
         await this.rpc(session, "initialize", {
             protocolVersion: "2025-06-18",
             capabilities: {},
@@ -285,7 +390,7 @@ export class PersonalAgent {
                 await this.authorized(session, endpoint, "POST", {
                     message: {
                         id: `msg_${randomId()}`,
-                        sender: "agent",
+                        author: { type: "agent" },
                         text: "Please propose a reservation for this public listing and these dates.",
                         data: intent,
                     },

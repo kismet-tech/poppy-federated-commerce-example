@@ -11,8 +11,19 @@ import {
 } from "../../validate/jose.ts";
 import { Problem } from "./model.ts";
 
-export type Session = { id: string; issuer: string; clientId: string; subject: string };
-export type Token = { session: Session; jkt: string; resource?: string; expires: number };
+export type Session = {
+    id: string;
+    issuer: string;
+    clientId: string;
+    subject: string;
+};
+export type Token = {
+    session: Session;
+    jkt: string;
+    resource?: string;
+    bearer?: boolean;
+    expires: number;
+};
 export type Client = { key: EcPublicJwk; operations: boolean };
 
 export class Authority {
@@ -20,6 +31,12 @@ export class Authority {
     readonly clients = new Map<string, Client>();
     readonly tokens = new Map<string, Token>();
     private seen = new Set<string>();
+    readonly ended = new Set<string>();
+
+    end(session: Session) {
+        this.ended.add(session.id);
+        this.sessions.delete(session.id);
+    }
 
     async proof(request: Request, accessToken?: string): Promise<string> {
         try {
@@ -91,41 +108,78 @@ export class Authority {
         }
     }
 
-    async issue(request: Request, issuer: string, mcp: string) {
+    async issue(request: Request, issuer: string, mcp: string, bearerOnly = false) {
         const form = new URLSearchParams(await request.text());
         const clientId = form.get("client_id") ?? "";
+        const grant = form.get("grant_type");
         if (
-            form.get("grant_type") !== "urn:ietf:params:oauth:grant-type:jwt-bearer" ||
             form.get("client_assertion_type") !==
-                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
         )
-            throw new Problem("unsupported_grant_type");
+            throw new Problem("invalid_client", 401);
         await this.assertion(form.get("client_assertion") ?? "", clientId, issuer, true);
-        const subject = await this.assertion(form.get("assertion") ?? "", clientId, issuer, false);
         const jkt = await this.proof(request);
         const resource = form.get("resource") ?? undefined;
         if (resource && resource !== mcp) throw new Problem("invalid_target");
-        const id = form.get("session_id");
-        let session = id ? this.sessions.get(id) : undefined;
-        if (
-            id &&
-            (!session ||
-                session.issuer !== issuer ||
-                session.clientId !== clientId ||
-                session.subject !== subject)
-        )
-            throw new Problem("invalid_session");
-        session ??= { id: `ses_${randomId()}`, issuer, clientId, subject };
-        this.sessions.set(session.id, session);
+        let session: Session;
+        let expires = nowSeconds() + 3600;
+        const exchange = grant === "urn:ietf:params:oauth:grant-type:token-exchange";
+        if (exchange) {
+            if (resource !== mcp || !bearerOnly) throw new Problem("invalid_target");
+            const source = this.tokens.get(form.get("subject_token") ?? "");
+            if (
+                form.get("subject_token_type") !==
+                    "urn:ietf:params:oauth:token-type:access_token" ||
+                !source ||
+                source.bearer ||
+                source.expires <= nowSeconds() ||
+                source.session.issuer !== issuer ||
+                source.session.clientId !== clientId ||
+                source.jkt !== jkt ||
+                this.ended.has(source.session.id)
+            )
+                throw new Problem("invalid_grant");
+            if (form.has("scope")) throw new Problem("invalid_scope");
+            session = source.session;
+            expires = Math.min(expires, source.expires);
+        } else if (grant === "urn:ietf:params:oauth:grant-type:jwt-bearer") {
+            if (resource && bearerOnly) throw new Problem("invalid_target");
+            const subject = await this.assertion(
+                form.get("assertion") ?? "",
+                clientId,
+                issuer,
+                false,
+            );
+            const id = `${issuer}:${jkt}`;
+            const existing = this.sessions.get(id);
+            if (
+                this.ended.has(id) ||
+                (existing && (existing.clientId !== clientId || existing.subject !== subject))
+            )
+                throw new Problem("invalid_grant");
+            session = existing ?? { id, issuer, clientId, subject };
+            this.sessions.set(id, session);
+        } else {
+            // No account or refresh tokens are issued by this signed-out fixture.
+            throw new Problem(
+                grant === "refresh_token" ? "invalid_grant" : "unsupported_grant_type",
+            );
+        }
         const access = randomId(32);
-        this.tokens.set(access, { session, jkt, resource, expires: nowSeconds() + 3600 });
+        this.tokens.set(access, {
+            session,
+            jkt,
+            resource,
+            bearer: exchange,
+            expires,
+        });
         return {
             access_token: access,
-            token_type: "DPoP",
-            expires_in: 3600,
-            scope: "",
-            session_id: session.id,
-            signed_in: false,
+            token_type: exchange ? "Bearer" : "DPoP",
+            expires_in: expires - nowSeconds(),
+            ...(exchange
+                ? { issued_token_type: "urn:ietf:params:oauth:token-type:access_token" }
+                : {}),
         };
     }
 
@@ -133,14 +187,15 @@ export class Authority {
         const [scheme, access] = (request.headers.get("authorization") ?? "").split(" ");
         const token = this.tokens.get(access);
         if (
-            scheme !== "DPoP" ||
+            scheme !== (token?.bearer ? "Bearer" : "DPoP") ||
             !token ||
             token.session.issuer !== issuer ||
             token.resource !== resource ||
-            token.expires <= nowSeconds()
+            token.expires <= nowSeconds() ||
+            this.ended.has(token.session.id)
         )
             throw new Problem("invalid_token", 401);
-        if ((await this.proof(request, access)) !== token.jkt)
+        if (!token.bearer && (await this.proof(request, access)) !== token.jkt)
             throw new Problem("invalid_dpop_proof", 401);
         return token.session;
     }

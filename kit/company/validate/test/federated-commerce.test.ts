@@ -197,7 +197,10 @@ test("only the selected public reference and shopping fields cross the handoff",
     };
     const { session, intent } = await agent.continueWith(
         contaminated,
-        { ...dates, guest_email: "not-part-of-intent@example.test" } as typeof dates,
+        {
+            ...dates,
+            guest_email: "not-part-of-intent@example.test",
+        } as typeof dates,
         yes,
     );
     const proposal = await agent.propose(session, intent, "conversation");
@@ -205,7 +208,10 @@ test("only the selected public reference and shopping fields cross the handoff",
         (r) => r.url === session.manifest.agent!.protocols[0].endpoint && r.method === "POST",
     )!;
     const payload = await request.json();
-    assert.deepEqual(payload.message.data, { listing_url: contaminated.listing_url, ...dates });
+    assert.deepEqual(payload.message.data, {
+        listing_url: contaminated.listing_url,
+        ...dates,
+    });
     const serialized = JSON.stringify(payload);
     for (const secret of [
         directory.session.id,
@@ -338,7 +344,9 @@ test("MCP resource tokens, a wrong DPoP key and Bearer downgrade fail at Operati
     assert.equal(
         (
             await fixture.fetch(
-                new Request(url, { headers: { authorization: `Bearer ${session.token}` } }),
+                new Request(url, {
+                    headers: { authorization: `Bearer ${session.token}` },
+                }),
             )
         ).status,
         401,
@@ -362,14 +370,18 @@ test("replayed token requests and another issuer's assertions are rejected", asy
                 grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
                 client_id: clientId,
                 client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-                client_assertion: await signAssertion({ key, iss: clientId, sub: clientId, aud }),
+                client_assertion: await signAssertion({
+                    key,
+                    iss: clientId,
+                    sub: clientId,
+                    aud,
+                }),
                 assertion: await signAssertion({
                     key,
                     iss: clientId,
                     sub: session.identity.subject,
                     aud,
                 }),
-                session_id: session.id,
             }),
         });
     const valid = await make(issuer);
@@ -438,7 +450,10 @@ test("a lost confirmation response is recovered by ID without a second reservati
     assert.equal((await agent.confirm(proposal, yes)).state, "succeeded");
     const url = `${session.manifest.extensions!.operations!.endpoint}/${proposal.operation.operation_id}/confirm`;
     const replay = await body<Operation>(
-        await agent.authorized(session, url, "POST", { revision: 1, approved_by: "user" }),
+        await agent.authorized(session, url, "POST", {
+            revision: 1,
+            approved_by: "user",
+        }),
     );
     assert.equal(replay.state, "succeeded");
     assert.equal(fixture.ledger.size, 1);

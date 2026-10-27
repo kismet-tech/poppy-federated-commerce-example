@@ -1,4 +1,4 @@
-import { randomId, type EcPublicJwk } from "../../validate/jose.ts";
+import { decodeJwt, randomId, type EcPublicJwk } from "../../validate/jose.ts";
 import { Authority, type Session } from "./auth.ts";
 import {
     json,
@@ -14,7 +14,12 @@ import {
 export const DIRECTORY = "directory.example";
 export const SUPPLIERS = ["cedar.example", "harbor.example"] as const;
 type StoredOperation = { session: string; intent: string; value: Operation };
-type Conversation = { client: string; subject: string; response: object; events: object[] };
+type Conversation = {
+    client: string;
+    subject: string;
+    response: object;
+    events: object[];
+};
 
 // Only these fictional hosts are routed. There is deliberately no fallback to global fetch.
 export class CommerceFixture {
@@ -31,6 +36,8 @@ export class CommerceFixture {
     readonly unavailable = new Set<string>();
     readonly prices = new Map<string, string>();
     requireAccount = false;
+    readonly requiredNonces = new Map<string, string>();
+    readonly bearerOnly = new Set<string>();
     dropNextConfirmation = false;
     deferFulfillment = false;
     companyText = "Here is the proposed reservation. Nothing is booked until you confirm.";
@@ -46,7 +53,7 @@ export class CommerceFixture {
                     ? `https://${DIRECTORY}/auth`
                     : `https://platform.example/${domain.split(".")[0]}`;
             this.manifests.set(domain, {
-                protocol_version: "0.2",
+                protocol_version: "0.3",
                 organization: {
                     name:
                         domain === DIRECTORY
@@ -95,6 +102,22 @@ export class CommerceFixture {
                     status: 302,
                     headers: { location: this.redirects.get(request.url)! },
                 });
+            const requiredNonce = this.requiredNonces.get(request.url);
+            if (requiredNonce) {
+                let nonce: unknown;
+                try {
+                    nonce = decodeJwt(request.headers.get("dpop") ?? "").payload.nonce;
+                } catch {}
+                if (nonce !== requiredNonce)
+                    return json(
+                        { error: "use_dpop_nonce" },
+                        request.url.endsWith("/token") ? 400 : 401,
+                        {
+                            "DPoP-Nonce": requiredNonce,
+                            "WWW-Authenticate": 'DPoP error="use_dpop_nonce"',
+                        },
+                    );
+            }
             const url = new URL(request.url);
             const manifest = this.manifests.get(url.host);
             if (request.method === "GET" && url.pathname === "/.well-known/poppy.json" && manifest)
@@ -106,7 +129,16 @@ export class CommerceFixture {
                         issuer,
                         token_endpoint: `${issuer}/token`,
                         revocation_endpoint: `${issuer}/revoke`,
-                        poppy_domains: this.domains.get(issuer),
+                        protected_resources: this.domains
+                            .get(issuer)!
+                            .map((host) => `https://${host}`),
+                        grant_types_supported: [
+                            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                            "refresh_token",
+                            ...(this.bearerOnly.has(issuer)
+                                ? ["urn:ietf:params:oauth:grant-type:token-exchange"]
+                                : []),
+                        ],
                         dpop_signing_alg_values_supported: ["ES256"],
                     });
                 const mcp = `${issuer}/mcp`;
@@ -118,12 +150,23 @@ export class CommerceFixture {
                     return json({
                         resource: mcp,
                         authorization_servers: [issuer],
-                        dpop_signing_alg_values_supported: ["ES256"],
+                        ...(this.bearerOnly.has(issuer)
+                            ? {}
+                            : { dpop_signing_alg_values_supported: ["ES256"] }),
                     });
                 if (request.url === `${issuer}/token` && request.method === "POST")
-                    return json(await this.authority.issue(request, issuer, mcp), 200, {
-                        "cache-control": "no-store",
-                    });
+                    return json(
+                        await this.authority.issue(
+                            request,
+                            issuer,
+                            mcp,
+                            this.bearerOnly.has(issuer),
+                        ),
+                        200,
+                        {
+                            "cache-control": "no-store",
+                        },
+                    );
                 if (request.url === mcp && request.method === "POST") {
                     const session = await this.authority.authorize(request, issuer, mcp);
                     return await this.mcp(request, domain, session);
@@ -230,7 +273,11 @@ export class CommerceFixture {
                                 : "Propose a demonstration reservation; confirmation is separate.",
                         inputSchema:
                             domain === DIRECTORY
-                                ? { type: "object", properties: {}, additionalProperties: false }
+                                ? {
+                                      type: "object",
+                                      properties: {},
+                                      additionalProperties: false,
+                                  }
                                 : {
                                       type: "object",
                                       properties: {
@@ -266,7 +313,10 @@ export class CommerceFixture {
                 } else throw new Problem("unknown_tool");
             } catch (error) {
                 if (!(error instanceof Problem)) throw error;
-                result = { isError: true, content: [{ type: "text", text: error.code }] };
+                result = {
+                    isError: true,
+                    content: [{ type: "text", text: error.code }],
+                };
             }
         } else
             return json({
@@ -289,7 +339,11 @@ export class CommerceFixture {
             }
             const operation = this.propose(domain, session, input.message.data);
             const id = `cnv_${randomId()}`;
-            const response = { conversation_id: id, status: "idle", responder: "agent" };
+            const response = {
+                conversation_id: id,
+                status: "idle",
+                responder: "agent",
+            };
             const events = [
                 {
                     id: `evt_${randomId()}`,
@@ -304,7 +358,7 @@ export class CommerceFixture {
                     message: {
                         id: `msg_${randomId()}`,
                         role: "company",
-                        sender: "agent",
+                        author: { type: "agent" },
                         text: this.companyText,
                         operation,
                     },
@@ -356,7 +410,9 @@ export class CommerceFixture {
             return json(op, 200, op.state === "in_progress" ? { "retry-after": "1" } : {});
         if (Date.parse(op.expires_at) <= this.clock()) {
             op.state = "expired";
-            op.result = { summary: "Proposal expired. No reservation or payment was made." };
+            op.result = {
+                summary: "Proposal expired. No reservation or payment was made.",
+            };
             return json(op);
         }
         op.confirmation = {

@@ -1,43 +1,47 @@
 # Validation record
 
-Local verification: October 20, 2026. Runtime: Node.js 24.20.0.
-Upstream draft 0.2 pin: `39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d`.
+Runtime: Node.js 24.20.0. Local validation: October 27, 2026.
+Upstream in-progress draft 0.3 pin: `a95b757872533a6ef1e1a9bcf29802857d2e5ff4`.
 
-Run `npm run check` from a clean copy of this companion. No dependency installation,
-credentials, network service or Kismet account is required.
+Run `npm run check` from a clean clone. No dependency installation, credentials,
+Kismet account or external service is required. CI runs the same command.
 
-Expected results:
+- All 25 vendored upstream helper/schema/license files match the recorded SHA-256 hashes.
+- 36 tests pass with no failures or skips: 25 original boundary tests plus 11 draft 0.3 regressions.
+- Both MCP and Company Agent demos recover dropped confirmation responses and end
+  with exactly two simulated fulfillment records.
 
-- All pinned upstream helper/schema/license hashes match.
-- 25 tests pass, with zero failures or skips.
-- Demo completes the MCP and Company Agent paths, recovers dropped confirmation
-  responses and ends with exactly two simulated fulfillment records.
+## What was migrated and tested
 
-These are synthetic local compatibility results. Hosted results are available in [GitHub Actions](https://github.com/kismet-tech/poppy-federated-commerce-example/actions/workflows/validate.yml); check the run for the commit you use. No independent
-Personal Agent has validated the example, and this does not establish production
-OAuth, payment, TLS or full Company conformance.
+- Fresh DPoP Session Keys per Session, stable issuer-local User IDs, same-key renewal,
+  wrong-user/client key rejection, and ended-key rejection without resurrection.
+- Token responses omit `session_id`, `signed_in` and signed-out `scope`.
+- Exact-origin `protected_resources`, required grant metadata, final well-known
+  discovery path/no query, and rejection of unsupported protocol versions.
+- Conversation messages use `author.type`; illustrated requests and responses are
+  checked against unmodified upstream 0.3 schemas.
+- DPoP-capable MCP uses resource-bound DPoP tokens. Bearer-only MCP uses RFC 8693
+  Token Exchange; wrong resources, clients, issuers, keys and expired subject tokens
+  are rejected. An exchange cannot target a DPoP-capable server. Bearer tokens
+  cannot read supplier Operations.
+- Bounded nonce retry on token, MCP and Operation endpoints, including Token Exchange.
+- Explicit renewal after token expiry recovers the same pending Operation and one
+  fulfillment record. Confirmation retry and concurrent confirmation preserve one effect.
 
-## Draft 0.3 review: October 27, 2026
+## Limits of this evidence
 
-Reviewed upstream main `a95b757872533a6ef1e1a9bcf29802857d2e5ff4` and the
-[in-progress 0.3 changelog](https://personalagentprotocol.org/docs/changelog#v0-3).
-This was a documentation and compatibility-gap review, not a 0.3 validation run.
-The executable example and vendored inputs remain pinned to 0.2.
+This is a single-process synthetic fixture and client, with pinned test-client
+registration, no DNS/TLS transport and no independent implementation. It is not
+full Company or Personal Agent conformance, production OAuth, or payment evidence.
+Direct/Device/Mediated Sign-In, Account Tokens and account scopes, browser sessions,
+complete conversation/MCP lifecycles, cancellations, task grants and standing-permission
+proofs are outside the example. No production Kismet service was migrated by this change.
 
-Relevant migration work before claiming 0.3 compatibility:
+Approval callbacks simulate the Personal Agent's UI. They are not cryptographic
+proof that a human saw or approved terms. Task-grant recovery (#28) has a different
+authorization lifecycle; the ordinary Session renewal test here does not implement it.
 
-- Name Sessions by per-Session DPoP Session Keys instead of `session_id`; review
-  renewal, ended-key rejection and isolation tests.
-- Obtain MCP Bearer tokens using RFC 8693 Token Exchange; test resource/type
-  rejection and preservation of the source Session's authority.
-- Replace `poppy_domains` with `protected_resources`, update required issuer
-  metadata, and enforce the final discovery well-known path and absence of query.
-- Update token response/error assumptions, including removed `signed_in` and
-  `invalid_session`, and Company-defined scopes where applicable.
-- Replace conversation `sender` with `author.type`; refresh upstream schemas and
-  provenance hashes only as part of the actual implementation migration.
-
-The 0.3 task-grants and standing-permission discussions are proposals, not
-implemented capabilities here. The fixture does not test token-expiry recovery,
-Company-side proof of human approval, or real payment settlement. Recovery tests
-cover retries and concurrent confirmation within the fixture's supported scope.
+[Hosted CI](https://github.com/kismet-tech/poppy-federated-commerce-example/actions/workflows/validate.yml)
+records results for each published commit. Prior 0.2 evidence is retained in Git
+history at `4ca9cf01fd135322055bb56bdc3c6b9253dfec5e`. The draft can change; use the
+exact pin above rather than interpreting “0.3” as compatibility with future edits.

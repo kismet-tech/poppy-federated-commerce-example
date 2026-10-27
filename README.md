@@ -1,9 +1,9 @@
 # Poppy federated commerce example
 
-> **Version status (October 27, 2026):** this runnable companion implements the pinned
-> draft **0.2**, not the in-progress draft 0.3. Session Keys, MCP Token Exchange,
-> discovery metadata and conversation messages change in 0.3. See
-> [the compatibility record](VALIDATION.md#draft-03-review-october-27-2026) before adapting it.
+> **Version status (October 27, 2026):** this companion targets the signed-out
+> flows of **in-progress draft 0.3**, pinned to `a95b757872533a6ef1e1a9bcf29802857d2e5ff4`.
+> It is a tested, single-process reference example, not a complete Company or
+> Personal Agent conformance suite. See [validation and scope](VALIDATION.md).
 
 Use this example to connect **finding an offer in one service** with **completing a user-approved
 action at the supplier responsible for it**. It shows a Personal Agent searching a travel directory,
@@ -30,7 +30,7 @@ separate.
 Finding and ranking suppliers remains outside Poppy, as clarified in
 [upstream issue #29](https://github.com/personal-agent-protocol/personal-agent-protocol/issues/29#issuecomment-6399202918).
 This example treats the directory as an application and demonstrates the subsequent connection
-between Company discovery, authority, approval and outcome recovery. It composes existing Poppy draft 0.2 discovery, Sessions, MCP, conversations and
+between Company discovery, authority, approval and outcome recovery. It composes existing Poppy draft 0.3 discovery, Sessions, MCP, conversations and
 Operations into a runnable flow. The contribution adds implementation guidance and tests; the
 wire protocol stays the same. Each supplier still defines its tools and commerce terms, so an
 agent must understand that supplier's published API or tool schema.
@@ -62,7 +62,7 @@ npm test
 npm run demo
 ```
 
-`npm test` runs the 25
+`npm test` runs the 36
 companion tests. Both the tests and demo are included in this repository.
 
 The demo prints a destination choice and approval for each of two suppliers, recovers a lost
@@ -81,7 +81,7 @@ on one platform does not make them one Company.
    presents the actual Company to its own destination-choice callback before starting a Session.
    A discovery redirect can reveal another Company; it cannot silently transfer the selected
    listing or the user's approval there.
-3. The agent uses a different User ID and DPoP key at each issuer. It sends only the selected
+3. The agent uses a different User ID at each issuer and a fresh DPoP Session Key for each Session. It sends only the selected
    public listing URL, dates and guest count to the supplier.
 4. Either `propose_reservation` in MCP or a Company Agent conversation produces an Operation. The
    supplier supplies current terms; the catalog cannot grant a price, availability or permission.
@@ -112,11 +112,15 @@ shopping task and destination choice, never by instructions embedded in that ref
   policy. The small authorization fixture is not a production OAuth server or conformance suite.
 - The example supports signed-out, session-owned demonstration reservations, with no customer
   account. Account-only actions return `sign_in_required`. Direct Sign-In, Account Tokens,
-  post-sign-out account checks, cancellation, streaming, nonce challenges, token expiry recovery
-  and complete MCP/conversation lifecycles are outside this example.
+  post-sign-out account checks, cancellation, streaming, and complete MCP/conversation lifecycles are outside this example.
 - The Company Agent is deterministic application code, not an LLM. The tests exercise protocol
   envelopes and trust boundaries, not model reasoning. Approval is a Personal Agent assertion,
   not cryptographic proof that a human saw the UI.
+- Session renewal uses the same Session Key. Tests expire a token while an Operation is pending,
+  renew explicitly, and recover that original Operation. Nonce challenges are retried once with
+  fresh assertions/proofs. The fixture can exercise both DPoP MCP and Bearer-only MCP via RFC 8693
+  Token Exchange; Bearer tokens cannot be used at Operations or conversations. This does not
+  implement Account Token refresh, task grants or Company-side proof of human approval.
 - The example keeps secrets only in memory. The demo prints public summaries and counts, never
   request traces, assertions, proofs, keys or tokens. The fixture's in-memory request capture is
   for test assertions and must not become a production logger.
@@ -139,15 +143,15 @@ requests and outcomes without exporting Company-specific User IDs or Sessions to
 Before proposing new handoff fields, try this pattern with independently implemented Personal
 Agents and Companies. This fixture and its client share code and are not that interoperability
 evidence. For production implementation requirements, use the
-[specification](https://personalagentprotocol.org/docs/0.2/spec),
-[Operations](https://personalagentprotocol.org/docs/0.2/extensions/operations) and
-[guides](https://personalagentprotocol.org/docs/0.2/guides).
+[specification](https://personalagentprotocol.org/docs/0.3/spec),
+[Operations](https://personalagentprotocol.org/docs/0.3/extensions/operations) and
+[guides](https://personalagentprotocol.org/docs/0.3/guides).
 
 ## Maintenance and provenance
 
 Maintained by Jason Cincotta at Kismet. We will track each Poppy draft revision, rerun the example and tests, and record the supported revision explicitly. This is an independently maintained companion, not an official Poppy implementation or endorsement.
 
-Licensed under Apache-2.0. The cryptographic helpers, schema validator and JSON schemas are copied from the Personal Agent Protocol Company kit at upstream commit `39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d`. See ATTRIBUTION.md and LICENSE.
+Licensed under Apache-2.0. The cryptographic helpers, schema validator and JSON schemas are copied from the Personal Agent Protocol Company kit at upstream commit `a95b757872533a6ef1e1a9bcf29802857d2e5ff4`. See ATTRIBUTION.md and LICENSE.
 
 ## Review and development
 

@@ -2,7 +2,7 @@
 
 Use Node.js 24.20.0 (`nvm use` if installed). No package installation is needed.
 Run `npm run check` before proposing changes. It verifies pinned upstream files,
-runs the 25 boundary tests, then runs the fictional demo. CI runs the same command.
+runs the 36 boundary tests, then runs the fictional demo. CI runs the same command.
 
 Keep this example focused on directory-to-independent-Company authority, approval
 and recovery using existing Poppy primitives. Add a regression test for behavior

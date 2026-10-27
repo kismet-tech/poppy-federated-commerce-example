@@ -8,9 +8,9 @@
   },
   "scripts": {
     "demo": "node kit/company/examples/federated-commerce/demo.ts",
-    "test": "node --test kit/company/validate/test/federated-commerce.test.ts",
+    "test": "node --test kit/company/validate/test/*.test.ts",
     "check:provenance": "node scripts/check-provenance.mjs",
     "check": "npm run check:provenance && npm test && npm run demo"
   },
-  "description": "A runnable Poppy draft 0.2 directory-to-supplier commerce example"
+  "description": "A runnable Poppy draft 0.3 directory-to-supplier commerce example"
 }
